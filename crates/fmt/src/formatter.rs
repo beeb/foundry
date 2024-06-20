@@ -109,7 +109,7 @@ struct ImportGroup<'a> {
     lines: Vec<ImportLine<'a>>,
 }
 
-impl<'a> ImportGroup<'_> {
+impl ImportGroup<'_> {
     #[must_use]
     fn new(start_offset: usize) -> Self {
         Self { start_offset, lines: Vec::with_capacity(10) }
@@ -1677,13 +1677,35 @@ impl<'a, W: Write> Formatter<'a, W> {
 
     fn sort_imports_new(&self, source_unit: &mut SourceUnit) {
         let mut groups = Vec::<ImportGroup<'_>>::with_capacity(5);
-        let mut source_unit_parts = source_unit.0.iter().peekable();
-        let mut group_idx = 0;
-        while let Some(part) = source_unit_parts.next() {}
+        let mut source_unit_parts = source_unit.0.iter_mut().peekable();
+        while let Some(part) = source_unit_parts.next() {
+            let current_loc = part.loc();
+            if let Some(next_part) = source_unit_parts.peek() {
+                let next_loc = next_part.loc();
+                let blank_lines = self.blank_lines(current_loc.end(), next_loc.start());
+                if blank_lines > 1
+                    || (matches!(next_part, SourceUnitPart::ImportDirective(_)) && blank_lines == 0)
+                {
+                    groups.push(ImportGroup::new(next_loc.start()));
+                } else if blank_lines == 1 {
+                    if groups.is_empty() {
+                        groups.push(ImportGroup::new(current_loc.start()));
+                    }
+                    let group = groups.last_mut().unwrap();
+                    if group.lines.is_empty() {
+                        group.lines.push(ImportLine::default());
+                    }
+                    let line = group.lines.last_mut().unwrap();
+                    line.parts.push(part);
+                }
+            }
+        }
+        println!("{groups:?}");
     }
 
     /// Sorts grouped import statement alphabetically.
     fn sort_imports(&self, source_unit: &mut SourceUnit) {
+        self.sort_imports_new(source_unit);
         // first we need to find the grouped import statements
         // A group is defined as a set of import statements that are separated by a blank line
         let mut import_groups = Vec::new();

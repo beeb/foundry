@@ -18,7 +18,7 @@ use alloy_primitives::Address;
 use foundry_config::fmt::{HexUnderscore, MultilineFuncHeaderStyle, SingleLineBlockStyle};
 use itertools::{Either, Itertools};
 use solang_parser::diagnostics::Diagnostic;
-use std::{fmt::Write, path::PathBuf, str::FromStr};
+use std::{cmp::Ordering, fmt::Write, path::PathBuf, str::FromStr};
 use thiserror::Error;
 
 type Result<T, E = FormatterError> = std::result::Result<T, E>;
@@ -93,23 +93,23 @@ impl Context {
 }
 
 #[derive(Debug)]
-struct ImportLine<'a> {
-    parts: Vec<&'a SourceUnitPart>,
+struct ImportLine {
+    part_indices: Vec<usize>,
 }
 
-impl Default for ImportLine<'_> {
+impl Default for ImportLine {
     fn default() -> Self {
-        Self { parts: Vec::with_capacity(10) }
+        Self { part_indices: Vec::with_capacity(10) }
     }
 }
 
 #[derive(Debug)]
-struct ImportGroup<'a> {
+struct ImportGroup {
     start_offset: usize,
-    lines: Vec<ImportLine<'a>>,
+    lines: Vec<ImportLine>,
 }
 
-impl ImportGroup<'_> {
+impl ImportGroup {
     #[must_use]
     fn new(start_offset: usize) -> Self {
         Self { start_offset, lines: Vec::with_capacity(10) }
@@ -1676,31 +1676,86 @@ impl<'a, W: Write> Formatter<'a, W> {
     }
 
     fn sort_imports_new(&self, source_unit: &mut SourceUnit) {
-        let mut groups = Vec::<ImportGroup<'_>>::with_capacity(5);
-        let mut source_unit_parts = source_unit.0.iter_mut().peekable();
-        while let Some(part) = source_unit_parts.next() {
+        let mut groups = Vec::<ImportGroup>::with_capacity(5);
+        let mut source_unit_parts = source_unit.0.iter().enumerate().peekable();
+        // chunk the parts into lines and import groups
+        while let Some((i, part)) = source_unit_parts.next() {
             let current_loc = part.loc();
-            if let Some(next_part) = source_unit_parts.peek() {
+            if groups.is_empty() {
+                groups.push(ImportGroup::new(current_loc.start()));
+            }
+            let group = groups.last_mut().unwrap();
+            if group.lines.is_empty() {
+                group.lines.push(ImportLine::default());
+            }
+            let line = group.lines.last_mut().unwrap();
+            line.part_indices.push(i);
+            if let Some((_, next_part)) = source_unit_parts.peek() {
                 let next_loc = next_part.loc();
-                let blank_lines = self.blank_lines(current_loc.end(), next_loc.start());
-                if blank_lines > 1
-                    || (matches!(next_part, SourceUnitPart::ImportDirective(_)) && blank_lines == 0)
-                {
-                    groups.push(ImportGroup::new(next_loc.start()));
-                } else if blank_lines == 1 {
-                    if groups.is_empty() {
-                        groups.push(ImportGroup::new(current_loc.start()));
-                    }
-                    let group = groups.last_mut().unwrap();
-                    if group.lines.is_empty() {
-                        group.lines.push(ImportLine::default());
-                    }
-                    let line = group.lines.last_mut().unwrap();
-                    line.parts.push(part);
+                match self.blank_lines(current_loc.end(), next_loc.start()) {
+                    0 => {}
+                    1 => group.lines.push(ImportLine::default()),
+                    2.. => groups.push(ImportGroup::new(next_loc.start())),
                 }
             }
         }
-        println!("{groups:?}");
+        for group in groups.iter_mut() {
+            if group.lines.is_empty() {
+                continue;
+            }
+            // re-order lines inside of each group
+            group.lines.sort_by(|a, b| {
+                if let Some(SourceUnitPart::ImportDirective(part_a)) =
+                    a.part_indices.first().map(|idx| &source_unit.0[*idx])
+                {
+                    let path_a = match part_a {
+                        Import::Plain(path, _) => import_path_string(path),
+                        Import::GlobalSymbol(path, _, _) => import_path_string(path),
+                        Import::Rename(path, _, _) => import_path_string(path),
+                    };
+                    if let Some(SourceUnitPart::ImportDirective(part_b)) =
+                        b.part_indices.first().map(|idx| &source_unit.0[*idx])
+                    {
+                        let path_b = match part_b {
+                            Import::Plain(path, _) => import_path_string(path),
+                            Import::GlobalSymbol(path, _, _) => import_path_string(path),
+                            Import::Rename(path, _, _) => import_path_string(path),
+                        };
+                        return path_a.cmp(&path_b);
+                    }
+                    return Ordering::Less;
+                }
+                Ordering::Equal
+            });
+            // adjust offsets for each part
+            let mut offset = group.start_offset;
+            for line in &group.lines {
+                let mut parts = line.part_indices.iter().peekable();
+                while let Some(idx) = parts.next() {
+                    let end = parts.peek().map(|next_idx| {
+                        let next_part = &source_unit.0[**next_idx];
+                        let next_loc = next_part.loc();
+                        next_loc.start()
+                    });
+                    let part = &mut source_unit.0[*idx];
+                    let loc = part.loc();
+                    let len = match end {
+                        Some(end) => end - loc.start(),
+                        None => loc.end() - loc.start(),
+                    };
+                    if let SourceUnitPart::ImportDirective(import) = part {
+                        let loc = match import {
+                            Import::Plain(_, loc) => loc,
+                            Import::GlobalSymbol(_, _, loc) => loc,
+                            Import::Rename(_, _, loc) => loc,
+                        };
+                        *loc = loc.with_start(offset).with_end(offset + len);
+                    }
+                    offset += len;
+                }
+            }
+        }
+        println!("{groups:#?}");
     }
 
     /// Sorts grouped import statement alphabetically.

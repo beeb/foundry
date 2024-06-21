@@ -1,3 +1,5 @@
+use std::{borrow::Cow, fmt::Write, path::Path};
+
 use crate::{
     inline_config::{InlineConfig, InvalidInlineConfigItem},
     Comments, Formatter, FormatterConfig, FormatterError, Visitable,
@@ -5,13 +7,12 @@ use crate::{
 use ariadne::{Color, Fmt, Label, Report, ReportKind, Source};
 use itertools::Itertools;
 use solang_parser::{diagnostics::Diagnostic, pt::*};
-use std::{fmt::Write, path::Path};
 
 /// Result of parsing the source code
 #[derive(Debug)]
 pub struct Parsed<'a> {
     /// The original source code.
-    pub src: &'a str,
+    pub src: Cow<'a, str>,
     /// The parse tree.
     pub pt: SourceUnit,
     /// Parsed comments.
@@ -23,24 +24,30 @@ pub struct Parsed<'a> {
 }
 
 /// Parse source code.
-pub fn parse(src: &str) -> Result<Parsed<'_>, FormatterError> {
-    parse_raw(src).map_err(|diag| FormatterError::Parse(src.to_string(), None, diag))
+pub fn parse<'s>(src: impl Into<Cow<'s, str>>) -> Result<Parsed<'s>, FormatterError> {
+    let cow = src.into();
+    parse_raw(cow.clone()).map_err(|diag| FormatterError::Parse(cow.into_owned(), None, diag))
 }
 
 /// Parse source code with a path for diagnostics.
-pub fn parse2<'s>(src: &'s str, path: Option<&Path>) -> Result<Parsed<'s>, FormatterError> {
-    parse_raw(src)
-        .map_err(|diag| FormatterError::Parse(src.to_string(), path.map(ToOwned::to_owned), diag))
+pub fn parse2<'s>(
+    src: impl Into<Cow<'s, str>>,
+    path: Option<&Path>,
+) -> Result<Parsed<'s>, FormatterError> {
+    let cow = src.into();
+    parse_raw(cow.clone())
+        .map_err(|diag| FormatterError::Parse(cow.into_owned(), path.map(ToOwned::to_owned), diag))
 }
 
 /// Parse source code, returning a list of diagnostics on failure.
-pub fn parse_raw(src: &str) -> Result<Parsed<'_>, Vec<Diagnostic>> {
-    let (pt, comments) = solang_parser::parse(src, 0)?;
-    let comments = Comments::new(comments, src);
+pub fn parse_raw<'s>(src: impl Into<Cow<'s, str>>) -> Result<Parsed<'s>, Vec<Diagnostic>> {
+    let cow = src.into();
+    let (pt, comments) = solang_parser::parse(&cow, 0)?;
+    let comments = Comments::new(comments, &cow);
     let (inline_config_items, invalid_inline_config_items): (Vec<_>, Vec<_>) =
         comments.parse_inline_config_items().partition_result();
-    let inline_config = InlineConfig::new(inline_config_items, src);
-    Ok(Parsed { src, pt, comments, inline_config, invalid_inline_config_items })
+    let inline_config = InlineConfig::new(inline_config_items, &cow);
+    Ok(Parsed { src: cow, pt, comments, inline_config, invalid_inline_config_items })
 }
 
 /// Format parsed code
@@ -51,12 +58,12 @@ pub fn format_to<W: Write>(
 ) -> Result<(), FormatterError> {
     trace!(?parsed, ?config, "Formatting");
     let mut formatter =
-        Formatter::new(writer, parsed.src, parsed.comments, parsed.inline_config, config);
+        Formatter::new(writer, &parsed.src, parsed.comments, parsed.inline_config, config);
     parsed.pt.visit(&mut formatter)
 }
 
 /// Parse and format a string with default settings
-pub fn format(src: &str) -> Result<String, FormatterError> {
+pub fn format<'s>(src: impl Into<Cow<'s, str>>) -> Result<String, FormatterError> {
     let parsed = parse(src)?;
 
     let mut output = String::new();
@@ -76,7 +83,7 @@ pub fn offset_to_line_column(content: &str, start: usize) -> (usize, usize) {
             line_counter += 1;
         }
         if offset > start {
-            return (line_counter, offset - start)
+            return (line_counter, offset - start);
         }
     }
 

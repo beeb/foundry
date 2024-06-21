@@ -9,8 +9,7 @@ use rayon::prelude::*;
 use similar::{ChangeTag, TextDiff};
 use std::{
     fmt::{self, Write},
-    io,
-    io::{Read, Write as _},
+    io::{self, Read, Write as _},
     path::{Path, PathBuf},
 };
 use yansi::{Color, Paint, Style};
@@ -72,11 +71,11 @@ impl FmtArgs {
             paths => {
                 let mut inputs = Vec::with_capacity(paths.len());
                 for path in paths {
-                    if !ignored.is_empty() &&
-                        ((path.is_absolute() && ignored.contains(path)) ||
-                            ignored.contains(&cwd.join(path)))
+                    if !ignored.is_empty()
+                        && ((path.is_absolute() && ignored.contains(path))
+                            || ignored.contains(&cwd.join(path)))
                     {
-                        continue
+                        continue;
                     }
 
                     if path.is_dir() {
@@ -108,7 +107,7 @@ impl FmtArgs {
 
             if !parsed.invalid_inline_config_items.is_empty() {
                 for (loc, warning) in &parsed.invalid_inline_config_items {
-                    let mut lines = source[..loc.start().min(source.len())].split('\n');
+                    let mut lines = parsed.src[..loc.start().min(parsed.src.len())].split('\n');
                     let col = lines.next_back().unwrap().len() + 1;
                     let row = lines.count() + 1;
                     cli_warn!("[{}:{}:{}] {}", name, row, col, warning);
@@ -132,7 +131,7 @@ impl FmtArgs {
 
                 let diff = TextDiff::from_lines(&source, &output);
                 if diff.ratio() < 1.0 {
-                    return Ok(Some(format_diff_summary(&name, &diff)))
+                    return Ok(Some(format_diff_summary(&name, &diff)));
                 }
             } else if let Some(path) = path {
                 fs::write(path, output)?;
@@ -149,7 +148,7 @@ impl FmtArgs {
                          HINT: If you are working outside of the project, \
                          try providing paths to your source files: `forge fmt <paths>`"
                     );
-                    return Ok(())
+                    return Ok(());
                 }
                 paths
                     .par_iter()

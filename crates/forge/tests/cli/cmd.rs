@@ -1,6 +1,7 @@
 //! Contains various tests for checking forge's commands
 
 use crate::constants::*;
+use alloy_primitives::hex;
 use foundry_compilers::artifacts::{remappings::Remapping, ConfigurableContractArtifact, Metadata};
 use foundry_config::{
     parse_with_profile, BasicConfig, Chain, Config, FuzzConfig, InvariantConfig, SolidityErrorCode,
@@ -576,7 +577,7 @@ forgetest_init!(can_emit_extra_output, |prj, cmd| {
 
     let artifact_path = prj.paths().artifacts.join(TEMPLATE_CONTRACT_ARTIFACT_JSON);
     let artifact: ConfigurableContractArtifact =
-        foundry_compilers::utils::read_json_file(artifact_path).unwrap();
+        foundry_compilers::utils::read_json_file(&artifact_path).unwrap();
     assert!(artifact.metadata.is_some());
 
     cmd.forge_fuse().args(["build", "--extra-output-files", "metadata", "--force"]).root_arg();
@@ -584,7 +585,7 @@ forgetest_init!(can_emit_extra_output, |prj, cmd| {
 
     let metadata_path =
         prj.paths().artifacts.join(format!("{TEMPLATE_CONTRACT_ARTIFACT_BASE}.metadata.json"));
-    let _artifact: Metadata = foundry_compilers::utils::read_json_file(metadata_path).unwrap();
+    let _artifact: Metadata = foundry_compilers::utils::read_json_file(&metadata_path).unwrap();
 });
 
 // checks that extra output works
@@ -594,7 +595,7 @@ forgetest_init!(can_emit_multiple_extra_output, |prj, cmd| {
 
     let artifact_path = prj.paths().artifacts.join(TEMPLATE_CONTRACT_ARTIFACT_JSON);
     let artifact: ConfigurableContractArtifact =
-        foundry_compilers::utils::read_json_file(artifact_path).unwrap();
+        foundry_compilers::utils::read_json_file(&artifact_path).unwrap();
     assert!(artifact.metadata.is_some());
     assert!(artifact.ir.is_some());
     assert!(artifact.ir_optimized.is_some());
@@ -613,7 +614,7 @@ forgetest_init!(can_emit_multiple_extra_output, |prj, cmd| {
 
     let metadata_path =
         prj.paths().artifacts.join(format!("{TEMPLATE_CONTRACT_ARTIFACT_BASE}.metadata.json"));
-    let _artifact: Metadata = foundry_compilers::utils::read_json_file(metadata_path).unwrap();
+    let _artifact: Metadata = foundry_compilers::utils::read_json_file(&metadata_path).unwrap();
 
     let iropt = prj.paths().artifacts.join(format!("{TEMPLATE_CONTRACT_ARTIFACT_BASE}.iropt"));
     std::fs::read_to_string(iropt).unwrap();

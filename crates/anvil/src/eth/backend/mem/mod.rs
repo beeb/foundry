@@ -70,7 +70,7 @@ use foundry_evm::{
         interpreter::InstructionResult,
         primitives::{
             BlockEnv, CfgEnvWithHandlerCfg, EnvWithHandlerCfg, ExecutionResult, Output, SpecId,
-            TransactTo, TxEnv, KECCAK_EMPTY,
+            TxEnv, KECCAK_EMPTY,
         },
     },
     utils::new_evm_with_inspector_ref,
@@ -1159,8 +1159,8 @@ impl Backend {
             gas_priority_fee: max_priority_fee_per_gas.map(U256::from),
             max_fee_per_blob_gas: max_fee_per_blob_gas.map(U256::from),
             transact_to: match to {
-                Some(addr) => TransactTo::Call(*addr),
-                None => TransactTo::Create,
+                Some(addr) => TxKind::Call(*addr),
+                None => TxKind::Create,
             },
             value: value.unwrap_or_default(),
             data: input.into_input().unwrap_or_default(),
@@ -1171,7 +1171,7 @@ impl Backend {
             optimism: OptimismFields { enveloped_tx: Some(Bytes::new()), ..Default::default() },
         };
 
-        if env.block.basefee == revm::primitives::U256::ZERO {
+        if env.block.basefee.is_zero() {
             // this is an edge case because the evm fails if `tx.effective_gas_price < base_fee`
             // 0 is only possible if it's manually set
             env.cfg.disable_base_fee = true;
@@ -1385,7 +1385,7 @@ impl Backend {
                 to_on_fork = fork.block_number();
             }
 
-            if fork.predates_fork(from) {
+            if fork.predates_fork_inclusive(from) {
                 // this data is only available on the forked client
                 let filter = filter.clone().from_block(from).to_block(to_on_fork);
                 all_logs = fork.logs(&filter).await?;
@@ -1921,8 +1921,8 @@ impl Backend {
         hash: B256,
         opts: GethDebugTracingOptions,
     ) -> Result<GethTrace, BlockchainError> {
-        if let Some(traces) = self.mined_geth_trace_transaction(hash, opts.clone()) {
-            return Ok(GethTrace::Default(traces));
+        if let Some(trace) = self.mined_geth_trace_transaction(hash, opts.clone()) {
+            return trace;
         }
 
         if let Some(fork) = self.get_fork() {
@@ -1936,8 +1936,8 @@ impl Backend {
         &self,
         hash: B256,
         opts: GethDebugTracingOptions,
-    ) -> Option<DefaultFrame> {
-        self.blockchain.storage.read().transactions.get(&hash).map(|tx| tx.geth_trace(opts.config))
+    ) -> Option<Result<GethTrace, BlockchainError>> {
+        self.blockchain.storage.read().transactions.get(&hash).map(|tx| tx.geth_trace(opts))
     }
 
     /// Returns the traces for the given block
@@ -2150,7 +2150,7 @@ impl Backend {
         Ok(None)
     }
 
-    fn mined_transaction_by_block_hash_and_index(
+    pub fn mined_transaction_by_block_hash_and_index(
         &self,
         block_hash: B256,
         index: Index,
@@ -2189,7 +2189,7 @@ impl Backend {
         Ok(None)
     }
 
-    fn mined_transaction_by_hash(&self, hash: B256) -> Option<WithOtherFields<Transaction>> {
+    pub fn mined_transaction_by_hash(&self, hash: B256) -> Option<WithOtherFields<Transaction>> {
         let (info, block) = {
             let storage = self.blockchain.storage.read();
             let MinedTransaction { info, block_hash, .. } =

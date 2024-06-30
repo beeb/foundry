@@ -21,6 +21,7 @@ foundry-compilers.workspace = true
 foundry-config.workspace = true
 foundry-evm-core.workspace = true
 foundry-wallets.workspace = true
+foundry-evm-abi.workspace = true
 
 alloy-dyn-abi.workspace = true
 alloy-json-abi.workspace = true
@@ -37,7 +38,6 @@ alloy-signer-local = { workspace = true, features = [
 parking_lot.workspace = true
 
 eyre.workspace = true
-hex.workspace = true
 itertools.workspace = true
 jsonpath_lib.workspace = true
 revm.workspace = true
